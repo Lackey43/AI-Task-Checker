@@ -433,7 +433,9 @@ def create_graph(checkpointer=None, store=None):
                 # Use ConnectionPool (correct way - avoids the _GeneratorContextManager error)
                 pool = ConnectionPool(
                     conninfo=postgres_uri,
-                    max_size=20,
+                    max_size=10,
+                    max_lifetime=300,
+                    timeout=30,
                     kwargs={"prepare_threshold": 0,
                             "autocommit": True,
                     }
