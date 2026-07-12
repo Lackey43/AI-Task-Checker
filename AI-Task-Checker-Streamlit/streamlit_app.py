@@ -8,6 +8,10 @@ from langchain_core.messages import HumanMessage
 import task_maistro
 import configuration
 
+from psycopg_pool import ConnectionPool
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.store.postgres import PostgresStore
+
 st.set_page_config(
     page_title="task_mAIstro | AI Task Checker",
     page_icon="✅",
@@ -120,22 +124,26 @@ with st.sidebar:
     memory_placeholder = st.empty()
 
 # ============================================
-# MAIN - Get Graph & Store (cached)
+# MAIN - Get Graph & Store (cached) - UPDATED WITH ConnectionPool
 # ============================================
 
 @st.cache_resource(show_spinner="Connecting to PostgreSQL and setting up tables...")
 def get_persisted_graph_and_store(postgres_uri: str):
-    """Create Postgres checkpointer + store and compile the graph. Cached for performance."""
+    """Create Postgres checkpointer + store using ConnectionPool (recommended for Streamlit)."""
     if not postgres_uri:
         st.error("❌ PostgreSQL URI is required. Please provide it in the sidebar.")
         st.stop()
     
     try:
-        from langgraph.checkpoint.postgres import PostgresSaver
-        from langgraph.store.postgres import PostgresStore
+        # Create a connection pool (best practice for long-running apps like Streamlit)
+        pool = ConnectionPool(
+            conninfo=postgres_uri,
+            max_size=20,
+            kwargs={"autocommit": True}
+        )
         
-        checkpointer = PostgresSaver.from_conn_string(postgres_uri)
-        store = PostgresStore.from_conn_string(postgres_uri)
+        checkpointer = PostgresSaver(pool)
+        store = PostgresStore(pool)
         
         # Create required tables (idempotent)
         checkpointer.setup()
@@ -147,7 +155,7 @@ def get_persisted_graph_and_store(postgres_uri: str):
         return graph, checkpointer, store
     except Exception as e:
         st.error(f"Failed to initialize Postgres persistence: {e}")
-        st.info("Make sure `langgraph-checkpoint-postgres` and `psycopg[binary]` are installed, and your connection string is correct.")
+        st.info("Make sure `psycopg_pool` is installed (`pip install psycopg_pool`) and your Postgres connection string is correct. Also verify your database is running and accessible.")
         st.stop()
 
 if not postgres_uri:
@@ -308,12 +316,12 @@ with st.expander("🚀 How to Deploy on Streamlit Community Cloud"):
        ```toml
        OPENAI_API_KEY = "sk-..."
        POSTGRES_URI = "postgresql://user:pass@db.supabase.co:5432/postgres?sslmode=require"
-       ```
-    4. (Recommended) Use a managed Postgres:
-       - [Supabase](https://supabase.com) (free tier)
-       - [Neon](https://neon.tech) (free tier)
-       - Railway / Render / Fly.io Postgres
-    5. Requirements are in `requirements.txt` — Streamlit Cloud will install them automatically.
-    """)
+       (Recommended) Use a managed Postgres:
+Supabase (free tier)
+Neon (free tier)
+Railway / Render / Fly.io Postgres
 
-st.caption("Built with LangGraph + PostgreSQL Store/Checkpointer + Streamlit  •  Original logic preserved & enhanced for persistence  •  Memories survive app restarts and user sessions")
+Requirements are in requirements.txt — Streamlit Cloud will install them automatically.
+
+Don't forget to add psycopg_pool to your requirements.txt!
+""")
