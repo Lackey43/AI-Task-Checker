@@ -2,15 +2,18 @@ import streamlit as st
 import os
 import sys
 from datetime import datetime
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessageChunk
 
-# Import from our updated task_maistro module (provides builder and create_graph)
+# Import from our task_maistro module
 import task_maistro
 import configuration
 
 from psycopg_pool import ConnectionPool
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.postgres import PostgresStore
+from dotenv import load_dotenv
+
+load_dotenv()
 
 st.set_page_config(
     page_title="task_mAIstro | AI Task Checker",
@@ -19,29 +22,30 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for nicer look
+# Custom CSS
 st.markdown("""
 <style>
     .stChatMessage { padding: 1rem; border-radius: 0.5rem; }
     .sidebar .stButton button { width: 100%; }
     .todo-card { background-color: #f0f2f6; padding: 0.75rem; border-radius: 0.5rem; margin-bottom: 0.5rem; }
+    .streaming-cursor { animation: blink 1s step-end infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("✅ task_mAIstro")
-st.caption("AI-powered task management assistant with persistent long-term memory (Profile • ToDos • Instructions) backed by PostgreSQL")
+st.caption("AI-powered task management assistant with persistent long-term memory (Profile • ToDos • Instructions) backed by PostgreSQL — now with streaming responses!")
 
 # ============================================
-# SIDEBAR - Configuration & Memories
+# SIDEBAR
 # ============================================
 with st.sidebar:
     st.header("⚙️ Configuration")
     
-    # User & Category
     user_id = st.text_input(
         "User ID", 
         value=st.session_state.get("user_id", "default-user"),
-        help="Change this to switch between different users/profiles. Memories are isolated per user+category."
+        help="Change this to switch between different users/profiles."
     )
     st.session_state.user_id = user_id
     
@@ -62,10 +66,8 @@ with st.sidebar:
     
     st.divider()
     
-    # Persistence & API Keys
     st.subheader("🔐 Secrets & Database")
     
-    # Load from Streamlit secrets or env (for Cloud deploy)
     secrets = {}
     if hasattr(st, "secrets"):
         try:
@@ -80,26 +82,26 @@ with st.sidebar:
         "PostgreSQL Connection String",
         value=default_postgres,
         type="password",
-        placeholder="postgresql://user:password@host:5432/dbname?sslmode=disable",
-        help="Use Supabase, Neon, Railway, or any Postgres. Required for persistence across sessions."
+        placeholder="postgresql://user:password@host:5432/dbname?sslmode=require",
+        help="Use Supabase, Neon, Railway, or any Postgres. Required for persistence."
     )
     
     openai_api_key = st.text_input(
-        "OpenAI API Key",
+        "OpenAI / OpenRouter API Key",
         value=default_openai,
         type="password",
-        help="Required for GPT-4o calls"
+        help="Required for the model"
     )
     
     if openai_api_key:
         os.environ["OPENAI_API_KEY"] = openai_api_key
+        os.environ["OPENROUTER_API_KEY"] = openai_api_key
     if postgres_uri:
         os.environ["POSTGRES_URI"] = postgres_uri
     
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🔄 Apply & Reconnect DB", use_container_width=True, type="primary"):
-            # Clear caches so new connection is used
             st.cache_resource.clear()
             if "messages" in st.session_state:
                 del st.session_state["messages"]
@@ -110,21 +112,19 @@ with st.sidebar:
                 st.session_state.messages = []
             st.rerun()
     
-    st.caption("💡 Tip: Add these to `.streamlit/secrets.toml` for Streamlit Cloud deploy.")
+    st.caption("💡 Tip: Add `POSTGRES_URI` and `OPENAI_API_KEY` to `.streamlit/secrets.toml` for Streamlit Cloud.")
     
     st.divider()
     
-    # Current Memories Viewer
     st.subheader("🧠 Current Long-Term Memory")
     
     if st.button("🔄 Refresh Memories from DB", use_container_width=True):
         st.rerun()
     
-    # We will populate this after getting store
     memory_placeholder = st.empty()
 
 # ============================================
-# MAIN - Get Graph & Store (cached) - UPDATED WITH ConnectionPool
+# PERSISTENCE (using ConnectionPool + create_graph)
 # ============================================
 
 @st.cache_resource(show_spinner="Connecting to PostgreSQL and setting up tables...")
@@ -135,7 +135,6 @@ def get_persisted_graph_and_store(postgres_uri: str):
         st.stop()
     
     try:
-        # Create a connection pool (best practice for long-running apps like Streamlit)
         pool = ConnectionPool(
             conninfo=postgres_uri,
             max_size=20,
@@ -149,13 +148,13 @@ def get_persisted_graph_and_store(postgres_uri: str):
         checkpointer.setup()
         store.setup()
         
-        # Compile graph with persistence
-        graph = task_maistro.builder.compile(checkpointer=checkpointer, store=store)
+        # Compile graph with the provided persistence
+        graph = task_maistro.create_graph(checkpointer=checkpointer, store=store)
         
         return graph, checkpointer, store
     except Exception as e:
         st.error(f"Failed to initialize Postgres persistence: {e}")
-        st.info("Make sure `psycopg_pool` is installed (`pip install psycopg_pool`) and your Postgres connection string is correct. Also verify your database is running and accessible.")
+        st.info("Make sure `psycopg_pool` and `langgraph-checkpoint-postgres` are installed, and your Postgres connection string is correct.")
         st.stop()
 
 if not postgres_uri:
@@ -164,7 +163,7 @@ if not postgres_uri:
 
 graph, checkpointer, store = get_persisted_graph_and_store(postgres_uri)
 
-# Thread ID for conversation history (short-term memory via checkpointer)
+# Thread ID
 thread_id = f"{user_id}__{todo_category}"
 
 config = {
@@ -177,11 +176,10 @@ config = {
 }
 
 # ============================================
-# HELPER: Display & Manage Memories
+# DISPLAY MEMORIES
 # ============================================
 
 def display_memories(store, user_id, todo_category):
-    """Fetch and nicely display current long-term memories."""
     with memory_placeholder.container():
         # Profile
         profile_ns = ("profile", todo_category, user_id)
@@ -192,7 +190,7 @@ def display_memories(store, user_id, todo_category):
             if profile:
                 st.json(profile, expanded=False)
             else:
-                st.caption("No profile information yet. Mention details in chat (name, location, job, interests...)")
+                st.caption("No profile information yet. Mention details in chat.")
         
         # ToDos
         todo_ns = ("todo", todo_category, user_id)
@@ -235,7 +233,7 @@ def display_memories(store, user_id, todo_category):
             if instructions:
                 st.text(instructions)
             else:
-                st.caption("No custom instructions yet. The AI will learn your preferences from feedback.")
+                st.caption("No custom instructions yet.")
         
         # Clear button
         if st.button("🗑️ Clear ALL memories for this user + category", type="secondary", use_container_width=True):
@@ -250,16 +248,14 @@ def display_memories(store, user_id, todo_category):
             except Exception as e:
                 st.error(f"Could not clear memories: {e}")
 
-# Show memories in sidebar
 display_memories(store, user_id, todo_category)
 
 # ============================================
-# CHAT INTERFACE
+# CHAT INTERFACE WITH TOKEN STREAMING
 # ============================================
 
 st.subheader(f"💬 Conversation  •  Thread: `{thread_id}`")
 
-# Session state for chat UI (short-term display; full history persisted in Postgres via checkpointer)
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -270,58 +266,74 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # Chat input
-if prompt := st.chat_input("Tell me about your tasks or preferences...  e.g. 'Add buy groceries by Friday' or 'My name is Alex and I work as a designer in Manila'"):
+if prompt := st.chat_input("Tell me about your tasks or preferences... e.g. 'Add buy groceries by Friday' or 'My name is Alex and I work as a designer in Manila'"):
     
-    # Add to UI history
+    # Add user message to UI and state
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     
-    # Prepare input for graph (new human message only; checkpointer loads previous state)
     inputs = {"messages": [HumanMessage(content=prompt)]}
     
-    try:
-        with st.spinner("task_mAIstro is thinking and updating memories..."):
-            result = graph.invoke(inputs, config=config)
+    # Stream the assistant response token by token
+    with st.chat_message("assistant"):
+        message_placeholder = st.empty()
+        full_response = ""
         
-        # Extract assistant's final response
-        last_msg = result["messages"][-1]
-        assistant_reply = getattr(last_msg, "content", str(last_msg))
-        
-        # Add to UI
-        st.session_state.messages.append({"role": "assistant", "content": assistant_reply})
-        with st.chat_message("assistant"):
-            st.markdown(assistant_reply)
-        
-        # Refresh memories sidebar after possible updates
-        st.rerun()
-        
-    except Exception as e:
-        st.error(f"Error during graph invocation: {e}")
-        st.exception(e)
-        # Remove the user message from history on failure? optional
-        if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-            st.session_state.messages.pop()
+        try:
+            with st.spinner("task_mAIstro is thinking..."):
+                # Use stream_mode="messages" to get token chunks from the LLM
+                for event in graph.stream(inputs, config=config, stream_mode="messages"):
+                    chunk, metadata = event
+                    
+                    # AIMessageChunk or similar has .content
+                    if hasattr(chunk, "content") and chunk.content:
+                        content = chunk.content
+                        if isinstance(content, list):
+                            content = "".join(str(c) for c in content if isinstance(c, str))
+                        
+                        full_response += str(content)
+                        # Live update with cursor
+                        message_placeholder.markdown(full_response + "▌")
+            
+            # Final render without cursor
+            message_placeholder.markdown(full_response)
+            
+            # Save to session history
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
+            
+            # Refresh memories sidebar after possible updates
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Error during streaming: {e}")
+            st.exception(e)
+            # Clean up the last user message if something failed
+            if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+                st.session_state.messages.pop()
 
 # ============================================
-# FOOTER & DEPLOY INSTRUCTIONS
+# FOOTER
 # ============================================
 st.divider()
 
-with st.expander("🚀 How to Deploy on Streamlit Community Cloud"):
+with st.expander("🚀 Deployment & Notes"):
     st.markdown("""
-    1. **Fork or copy** this repo to your GitHub.
-    2. Create a new Streamlit app at [share.streamlit.io](https://share.streamlit.io) pointing to `streamlit_app.py`.
-    3. In the app settings, add **Secrets** (or use `.streamlit/secrets.toml`):
+    **Streaming is now enabled!** The assistant response appears token-by-token for a much better UX.
+    
+    **Requirements** (already in `requirements.txt`):
+    - `langgraph`, `langgraph-checkpoint-postgres`, `psycopg[binary]`, `psycopg_pool`
+    - `streamlit>=1.35`, `langchain-openai`, etc.
+    
+    **For Streamlit Cloud:**
+    1. Point the app to `streamlit_app.py`
+    2. Add secrets:
        ```toml
        OPENAI_API_KEY = "sk-..."
-       POSTGRES_URI = "postgresql://user:pass@db.supabase.co:5432/postgres?sslmode=require"
-       (Recommended) Use a managed Postgres:
-Supabase (free tier)
-Neon (free tier)
-Railway / Render / Fly.io Postgres
+       POSTGRES_URI = "postgresql://..."
 
-Requirements are in requirements.txt — Streamlit Cloud will install them automatically.
+Use a managed Postgres (Supabase / Neon free tier recommended).
 
-Don't forget to add psycopg_pool to your requirements.txt!
+The graph now uses ConnectionPool + create_graph from task_maistro.py.
 """)
+st.caption("Built with LangGraph + PostgreSQL + Streamlit • Token streaming enabled • Persistent memory across sessions")
