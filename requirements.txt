@@ -11,3 +11,4 @@ langsmith>=0.7.31
 aiohttp>=3.13.4
 pydantic
 psycopg_pool
+langchain-openrouter
