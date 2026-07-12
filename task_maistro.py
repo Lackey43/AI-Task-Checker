@@ -13,7 +13,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import merge_message_runs
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from langchain_openrouter import ChatOpenRouter
+from langchain_openai import ChatOpenAI
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, MessagesState, START, END
@@ -148,7 +148,7 @@ class UpdateMemory(TypedDict):
     update_type: Literal['user', 'todo', 'instructions']
 
 # Initialize the model
-model = ChatOpenRouter(model="openrouter/free",model_provider="openrouter", api_key = api_key, temperature=0)
+model = ChatOpenAI(model="openrouter/free",model_provider="openrouter", api_key = api_key, temperature=0)
 
 ## Create the Trustcall extractors for updating the user profile and ToDo list
 profile_extractor = create_extractor(
