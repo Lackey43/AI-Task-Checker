@@ -1,10 +1,8 @@
 import streamlit as st
 import os
-import sys
 from datetime import datetime
-from langchain_core.messages import HumanMessage, AIMessageChunk
+from langchain_core.messages import HumanMessage
 
-# Import from our task_maistro module
 import task_maistro
 import configuration
 
@@ -15,123 +13,165 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ============================================
+# PAGE CONFIG + GROK-LIKE STYLING
+# ============================================
 st.set_page_config(
-    page_title="task_mAIstro | AI Task Checker",
+    page_title="task_mAIstro",
     page_icon="✅",
-    layout="wide",
+    layout="centered",   # More focused chat feel like Grok
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Grok-inspired clean styling
 st.markdown("""
 <style>
-    .stChatMessage { padding: 1rem; border-radius: 0.5rem; }
-    .sidebar .stButton button { width: 100%; }
-    .todo-card { background-color: #f0f2f6; padding: 0.75rem; border-radius: 0.5rem; margin-bottom: 0.5rem; }
-    .streaming-cursor { animation: blink 1s step-end infinite; }
-    @keyframes blink { 50% { opacity: 0; } }
+    /* Overall app */
+    .stApp {
+        background-color: #0f0f0f;
+        color: #e5e5e5;
+    }
+    
+    /* Message bubbles - Grok style */
+    .stChatMessage {
+        padding: 1rem 1.25rem;
+        border-radius: 18px;
+        margin-bottom: 12px;
+        max-width: 85%;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    
+    .stChatMessage[data-testid="chat-message-user"] {
+        background-color: #1f6feb;
+        color: white;
+        border-bottom-right-radius: 4px;
+        margin-left: auto;
+    }
+    
+    .stChatMessage[data-testid="chat-message-assistant"] {
+        background-color: #1f2937;
+        color: #e5e5e5;
+        border-bottom-left-radius: 4px;
+    }
+    
+    /* Input box - nice rounded Grok style */
+    .stChatInputContainer {
+        background-color: #1f2937;
+        border-radius: 24px;
+        border: 1px solid #374151;
+        padding: 4px 12px;
+    }
+    
+    .stChatInput textarea {
+        background-color: transparent !important;
+        color: #e5e5e5 !important;
+        border: none !important;
+        font-size: 15px;
+    }
+    
+    /* Title */
+    .main-title {
+        font-size: 2.2rem;
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+        color: #ffffff;
+    }
+    
+    .subtitle {
+        color: #9ca3af;
+        font-size: 0.95rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    /* Streaming cursor */
+    .streaming-cursor {
+        display: inline-block;
+        width: 8px;
+        height: 18px;
+        background-color: #3b82f6;
+        margin-left: 2px;
+        animation: blink 0.8s step-end infinite;
+        vertical-align: middle;
+    }
+    
+    @keyframes blink {
+        50% { opacity: 0; }
+    }
+    
+    /* Memory cards */
+    .todo-card {
+        background-color: #1f2937;
+        padding: 0.85rem 1rem;
+        border-radius: 12px;
+        margin-bottom: 0.6rem;
+        border-left: 4px solid #3b82f6;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("✅ task_mAIstro")
-st.caption("AI-powered task management assistant with persistent long-term memory (Profile • ToDos • Instructions) backed by PostgreSQL — now with streaming responses!")
+# ============================================
+# HEADER (Grok-like)
+# ============================================
+st.markdown('<p class="main-title">✅ task_mAIstro</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Your persistent AI task assistant • Powered by LangGraph + PostgreSQL</p>', unsafe_allow_html=True)
 
 # ============================================
-# SIDEBAR
+# SIDEBAR (Settings + Memories)
 # ============================================
 with st.sidebar:
-    st.header("⚙️ Configuration")
+    st.header("⚙️ Settings")
     
-    user_id = st.text_input(
-        "User ID", 
-        value=st.session_state.get("user_id", "default-user"),
-        help="Change this to switch between different users/profiles."
-    )
+    user_id = st.text_input("User ID", value=st.session_state.get("user_id", "default-user"))
     st.session_state.user_id = user_id
     
-    todo_category = st.text_input(
-        "Todo Category", 
-        value=st.session_state.get("todo_category", "general"),
-        help="e.g. work, personal, fitness, projects"
-    )
+    todo_category = st.text_input("Category", value=st.session_state.get("todo_category", "general"))
     st.session_state.todo_category = todo_category
     
     task_maistro_role = st.text_area(
-        "System Role / Personality",
+        "Personality / Role",
         value=st.session_state.get("task_maistro_role", configuration.Configuration.task_maistro_role),
-        height=80,
-        help="Customize how the AI behaves"
+        height=70
     )
     st.session_state.task_maistro_role = task_maistro_role
     
     st.divider()
     
-    st.subheader("🔐 Secrets & Database")
-    
-    secrets = {}
-    if hasattr(st, "secrets"):
-        try:
-            secrets = dict(st.secrets)
-        except:
-            pass
-    
-    default_postgres = os.getenv("POSTGRES_URI") or secrets.get("POSTGRES_URI", "")
-    default_openai = os.getenv("OPENAI_API_KEY") or secrets.get("OPENAI_API_KEY", "")
-    
+    st.subheader("🔐 Database")
     postgres_uri = st.text_input(
-        "PostgreSQL Connection String",
-        value=default_postgres,
+        "PostgreSQL URI",
+        value=os.getenv("POSTGRES_URI", ""),
         type="password",
-        placeholder="postgresql://user:password@host:5432/dbname?sslmode=require",
-        help="Use Supabase, Neon, Railway, or any Postgres. Required for persistence."
+        placeholder="postgresql://user:pass@host:5432/db?sslmode=require"
     )
     
-    openai_api_key = st.text_input(
-        "OpenAI / OpenRouter API Key",
-        value=default_openai,
-        type="password",
-        help="Required for the model"
-    )
-    
-    if openai_api_key:
-        os.environ["OPENAI_API_KEY"] = openai_api_key
-        os.environ["OPENROUTER_API_KEY"] = openai_api_key
     if postgres_uri:
         os.environ["POSTGRES_URI"] = postgres_uri
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🔄 Apply & Reconnect DB", use_container_width=True, type="primary"):
-            st.cache_resource.clear()
-            if "messages" in st.session_state:
-                del st.session_state["messages"]
-            st.rerun()
-    with col2:
-        if st.button("🧹 Clear Chat UI", use_container_width=True):
-            if "messages" in st.session_state:
-                st.session_state.messages = []
-            st.rerun()
+    if st.button("🔄 Reconnect Database", use_container_width=True):
+        st.cache_resource.clear()
+        if "messages" in st.session_state:
+            st.session_state.messages = []
+        st.rerun()
     
-    st.caption("💡 Tip: Add `POSTGRES_URI` and `OPENAI_API_KEY` to `.streamlit/secrets.toml` for Streamlit Cloud.")
+    st.caption("💡 Add to `.streamlit/secrets.toml` for Cloud deploys")
     
     st.divider()
     
-    st.subheader("🧠 Current Long-Term Memory")
+    # Memories section in sidebar
+    st.subheader("🧠 Long-term Memory")
     
-    if st.button("🔄 Refresh Memories from DB", use_container_width=True):
+    if st.button("Refresh Memories", use_container_width=True):
         st.rerun()
     
     memory_placeholder = st.empty()
 
 # ============================================
-# PERSISTENCE (using ConnectionPool + create_graph)
+# PERSISTENCE
 # ============================================
-
-@st.cache_resource(show_spinner="Connecting to PostgreSQL and setting up tables...")
-def get_persisted_graph_and_store(postgres_uri: str):
-    """Create Postgres checkpointer + store using ConnectionPool (recommended for Streamlit)."""
+@st.cache_resource(show_spinner="Connecting to PostgreSQL...")
+def get_graph_and_store(postgres_uri: str):
     if not postgres_uri:
-        st.error("❌ PostgreSQL URI is required. Please provide it in the sidebar.")
+        st.error("Please enter a PostgreSQL connection string in the sidebar.")
         st.stop()
     
     try:
@@ -140,32 +180,25 @@ def get_persisted_graph_and_store(postgres_uri: str):
             max_size=20,
             kwargs={"autocommit": True}
         )
-        
         checkpointer = PostgresSaver(pool)
         store = PostgresStore(pool)
-        
-        # Create required tables (idempotent)
         checkpointer.setup()
         store.setup()
         
-        # Compile graph with the provided persistence
         graph = task_maistro.create_graph(checkpointer=checkpointer, store=store)
-        
-        return graph, checkpointer, store
+        return graph, store
     except Exception as e:
-        st.error(f"Failed to initialize Postgres persistence: {e}")
-        st.info("Make sure `psycopg_pool` and `langgraph-checkpoint-postgres` are installed, and your Postgres connection string is correct.")
+        st.error(f"Database connection failed: {e}")
         st.stop()
 
 if not postgres_uri:
-    st.info("👈 Please enter your **PostgreSQL connection string** in the sidebar to continue. Free options: Supabase, Neon.tech")
+    st.info("👈 Enter your **PostgreSQL URI** in the sidebar to start chatting.\n\nFree options: Supabase, Neon, Railway.")
     st.stop()
 
-graph, checkpointer, store = get_persisted_graph_and_store(postgres_uri)
+graph, store = get_graph_and_store(postgres_uri)
 
-# Thread ID
+# Config for this thread
 thread_id = f"{user_id}__{todo_category}"
-
 config = {
     "configurable": {
         "thread_id": thread_id,
@@ -176,139 +209,99 @@ config = {
 }
 
 # ============================================
-# DISPLAY MEMORIES
+# MEMORY DISPLAY (Sidebar)
 # ============================================
-
-def display_memories(store, user_id, todo_category):
+def show_memories():
     with memory_placeholder.container():
         # Profile
         profile_ns = ("profile", todo_category, user_id)
-        profiles = store.search(profile_ns)
-        profile = profiles[0].value if profiles else None
-        
-        with st.expander("👤 User Profile", expanded=bool(profile)):
-            if profile:
-                st.json(profile, expanded=False)
+        prof = store.search(profile_ns)
+        with st.expander("👤 Profile", expanded=bool(prof)):
+            if prof:
+                st.json(prof[0].value)
             else:
-                st.caption("No profile information yet. Mention details in chat.")
+                st.caption("No profile yet — tell me about yourself!")
         
-        # ToDos
+        # Todos
         todo_ns = ("todo", todo_category, user_id)
         todos = store.search(todo_ns)
-        
-        with st.expander(f"📋 To-Do List ({len(todos)} items)", expanded=True):
+        with st.expander(f"📋 To-Dos ({len(todos)})", expanded=True):
             if todos:
-                for item in todos:
-                    todo = item.value
-                    status = todo.get("status", "not started")
-                    emoji_map = {
-                        "not started": "⬜",
-                        "in progress": "🔄",
-                        "done": "✅",
-                        "archived": "📦"
-                    }
-                    emoji = emoji_map.get(status, "⬜")
-                    
+                for t in todos:
+                    item = t.value
+                    emoji = {"not started": "⬜", "in progress": "🔄", "done": "✅", "archived": "📦"}.get(item.get("status"), "⬜")
                     st.markdown(f"""
                     <div class="todo-card">
-                        <strong>{emoji} {todo.get('task', 'Untitled task')}</strong><br>
-                        <small>⏱️ Est. {todo.get('time_to_complete', '?')} min 
-                        | 📅 {todo.get('deadline') or 'No deadline'}</small>
+                        <strong>{emoji} {item.get('task')}</strong><br>
+                        <small>⏱ {item.get('time_to_complete', '?')} min • {item.get('deadline') or 'No deadline'}</small>
                     </div>
                     """, unsafe_allow_html=True)
-                    
-                    if todo.get("solutions"):
-                        with st.popover("💡 Suggested solutions"):
-                            for sol in todo["solutions"]:
-                                st.write(f"• {sol}")
             else:
-                st.caption("No tasks yet. Ask the AI to add some!")
+                st.caption("No tasks yet. Ask me to add some!")
         
         # Instructions
         instr_ns = ("instructions", todo_category, user_id)
-        instr_item = store.get(instr_ns, "user_instructions")
-        instructions = instr_item.value.get("memory", "") if instr_item else ""
-        
-        with st.expander("⚙️ Custom Update Instructions", expanded=False):
-            if instructions:
-                st.text(instructions)
+        instr = store.get(instr_ns, "user_instructions")
+        with st.expander("⚙️ Instructions", expanded=False):
+            if instr:
+                st.text(instr.value.get("memory", ""))
             else:
                 st.caption("No custom instructions yet.")
-        
-        # Clear button
-        if st.button("🗑️ Clear ALL memories for this user + category", type="secondary", use_container_width=True):
-            try:
-                for ns in [profile_ns, todo_ns, instr_ns]:
-                    items = store.search(ns)
-                    for it in items:
-                        store.delete(ns, it.key)
-                st.success("Memories cleared from PostgreSQL!")
-                st.cache_resource.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not clear memories: {e}")
 
-display_memories(store, user_id, todo_category)
+show_memories()
 
 # ============================================
-# CHAT INTERFACE WITH TOKEN STREAMING
+# CHAT AREA (Grok-style)
 # ============================================
-
-st.subheader(f"💬 Conversation  •  Thread: `{thread_id}`")
+st.subheader(f"💬 {todo_category.capitalize()} • Thread: {thread_id}")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Render chat history
+# Render history
 for msg in st.session_state.messages:
-    role = "assistant" if msg["role"] in ("assistant", "ai") else "user"
+    role = msg["role"]
     with st.chat_message(role):
         st.markdown(msg["content"])
 
-# Chat input
-if prompt := st.chat_input("Tell me about your tasks or preferences... e.g. 'Add buy groceries by Friday' or 'My name is Alex and I work as a designer in Manila'"):
-    
-    # Add user message to UI and state
+# ============================================
+# CHAT INPUT + STREAMING (Main Feature)
+# ============================================
+if prompt := st.chat_input("What would you like to do today? Add tasks, update preferences, or just chat..."):
+    # User message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     
     inputs = {"messages": [HumanMessage(content=prompt)]}
     
-    # Stream the assistant response token by token
+    # Assistant streaming response
     with st.chat_message("assistant"):
-        message_placeholder = st.empty()
+        placeholder = st.empty()
         full_response = ""
         
         try:
-            with st.spinner("task_mAIstro is thinking..."):
-                # Use stream_mode="messages" to get token chunks from the LLM
+            with st.spinner("Thinking..."):
                 for event in graph.stream(inputs, config=config, stream_mode="messages"):
-                    chunk, metadata = event
-                    
-                    # AIMessageChunk or similar has .content
+                    chunk, _ = event
                     if hasattr(chunk, "content") and chunk.content:
                         content = chunk.content
                         if isinstance(content, list):
                             content = "".join(str(c) for c in content if isinstance(c, str))
-                        
                         full_response += str(content)
-                        # Live update with cursor
-                        message_placeholder.markdown(full_response + "▌")
+                        placeholder.markdown(full_response + '<span class="streaming-cursor"></span>', unsafe_allow_html=True)
             
-            # Final render without cursor
-            message_placeholder.markdown(full_response)
+            # Final message without cursor
+            placeholder.markdown(full_response)
             
-            # Save to session history
+            # Save to history
             st.session_state.messages.append({"role": "assistant", "content": full_response})
             
-            # Refresh memories sidebar after possible updates
+            # Refresh memories after possible updates
             st.rerun()
             
         except Exception as e:
-            st.error(f"Error during streaming: {e}")
-            st.exception(e)
-            # Clean up the last user message if something failed
+            st.error(f"Something went wrong: {e}")
             if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
                 st.session_state.messages.pop()
 
@@ -316,24 +309,4 @@ if prompt := st.chat_input("Tell me about your tasks or preferences... e.g. 'Add
 # FOOTER
 # ============================================
 st.divider()
-
-with st.expander("🚀 Deployment & Notes"):
-    st.markdown("""
-    **Streaming is now enabled!** The assistant response appears token-by-token for a much better UX.
-    
-    **Requirements** (already in `requirements.txt`):
-    - `langgraph`, `langgraph-checkpoint-postgres`, `psycopg[binary]`, `psycopg_pool`
-    - `streamlit>=1.35`, `langchain-openai`, etc.
-    
-    **For Streamlit Cloud:**
-    1. Point the app to `streamlit_app.py`
-    2. Add secrets:
-       ```toml
-       OPENAI_API_KEY = "sk-..."
-       POSTGRES_URI = "postgresql://..."
-
-Use a managed Postgres (Supabase / Neon free tier recommended).
-
-The graph now uses ConnectionPool + create_graph from task_maistro.py.
-""")
-st.caption("Built with LangGraph + PostgreSQL + Streamlit • Token streaming enabled • Persistent memory across sessions")
+st.caption("task_mAIstro • Persistent memory with PostgreSQL • Token streaming enabled • Built with LangGraph + Streamlit")
