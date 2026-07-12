@@ -26,9 +26,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from os import getenv
-
-api_key = getenv("OPENROUTER_API_KEY")
+api_key = os.getenv("OPENROUTER_API_KEY")
 
 ## Utilities 
 
@@ -148,7 +146,7 @@ class UpdateMemory(TypedDict):
     update_type: Literal['user', 'todo', 'instructions']
 
 # Initialize the model
-model = ChatOpenAI(model="openrouter/free",model_provider="openrouter", api_key = api_key, temperature=0)
+model = ChatOpenAI(model="openrouter/free",model_provider="openrouter",api_key=api_key, temperature=0)
 
 ## Create the Trustcall extractors for updating the user profile and ToDo list
 profile_extractor = create_extractor(
@@ -428,13 +426,24 @@ def create_graph(checkpointer=None, store=None):
         postgres_uri = os.getenv("POSTGRES_URI") or os.getenv("DATABASE_URL")
         if postgres_uri:
             try:
+                from psycopg_pool import ConnectionPool
                 from langgraph.checkpoint.postgres import PostgresSaver
                 from langgraph.store.postgres import PostgresStore
-                checkpointer = PostgresSaver.from_conn_string(postgres_uri)
-                store = PostgresStore.from_conn_string(postgres_uri)
+                
+                # Use ConnectionPool (correct way - avoids the _GeneratorContextManager error)
+                pool = ConnectionPool(
+                    conninfo=postgres_uri,
+                    max_size=20,
+                    kwargs={"autocommit": True}
+                )
+                
+                checkpointer = PostgresSaver(pool)
+                store = PostgresStore(pool)
+                
                 # Ensure tables exist (safe to call multiple times)
                 checkpointer.setup()
                 store.setup()
+                
             except Exception as e:
                 print(f"Warning: Could not initialize Postgres persistence ({e}). Falling back to memory.")
                 from langgraph.checkpoint.memory import MemorySaver
