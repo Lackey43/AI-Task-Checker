@@ -441,8 +441,9 @@ def create_graph(checkpointer=None, store=None):
                 store = PostgresStore(pool)
                 
                 # Ensure tables exist (safe to call multiple times)
-                # checkpointer.setup()
-                # store.setup()
+                checkpointer.setup()
+                store.setup()
+
                 
             except Exception as e:
                 print(f"Warning: Could not initialize Postgres persistence ({e}). Falling back to memory.")

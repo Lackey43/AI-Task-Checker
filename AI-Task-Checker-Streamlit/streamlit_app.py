@@ -11,7 +11,9 @@ import configuration
 from psycopg_pool import ConnectionPool
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.postgres import PostgresStore
+from dotenv import load_dotenv
 
+load_dotenv()
 st.set_page_config(
     page_title="task_mAIstro | AI Task Checker",
     page_icon="✅",
@@ -74,11 +76,11 @@ with st.sidebar:
             pass
     
     default_postgres = os.getenv("POSTGRES_URI") or secrets.get("POSTGRES_URI", "")
-    default_openai = os.getenv("OPENAI_API_KEY") or secrets.get("OPENAI_API_KEY", "")
+    default_openai = os.getenv("OPENROUTER_API_KEY ") or secrets.get("OPENROUTER_API_KEY ", "")
     
     postgres_uri = st.text_input(
         "PostgreSQL Connection String",
-        value=default_postgres,
+        value="",
         type="password",
         placeholder="postgresql://user:password@host:5432/dbname?sslmode=disable",
         help="Use Supabase, Neon, Railway, or any Postgres. Required for persistence across sessions."
