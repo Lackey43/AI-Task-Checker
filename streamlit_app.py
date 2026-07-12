@@ -64,7 +64,7 @@ st.markdown("""
     
     .stChatInput textarea {
         background-color: transparent !important;
-        color: #e5e5e5 !important;
+        color: #161616 !important;
         border: none !important;
         font-size: 15px;
     }
