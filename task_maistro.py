@@ -146,7 +146,7 @@ class UpdateMemory(TypedDict):
     update_type: Literal['user', 'todo', 'instructions']
 
 # Initialize the model
-model = ChatGoogleGenerativeAI(model="gemma-4-26b-a4b-it",api_key=api_key, temperature=0)
+model = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite",api_key=api_key, temperature=0)
 
 ## Create the Trustcall extractors for updating the user profile and ToDo list
 profile_extractor = create_extractor(
