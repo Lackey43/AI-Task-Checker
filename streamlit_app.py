@@ -159,6 +159,7 @@ def get_graph_and_store(postgres_uri: str):
             max_size=15,
             min_size=1,
             max_lifetime=300,
+            timeout=30,
             kwargs={
                 "prepare_threshold": 0,
                 "autocommit": True,
