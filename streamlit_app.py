@@ -157,8 +157,10 @@ def get_graph_and_store(postgres_uri: str):
         pool = ConnectionPool(
             conninfo=postgres_uri,
             max_size=15,
+            min_size=1,
+            max_lifetime=300,
             kwargs={
-                "prepare_threshold": 0,   # Disable prepared statements (fixes most pool errors)
+                "prepare_threshold": 0,
                 "autocommit": True,
             }
         )
@@ -168,7 +170,7 @@ def get_graph_and_store(postgres_uri: str):
         store.setup()
 
         graph = task_maistro.create_graph(checkpointer=checkpointer, store=store)
-        return graph, store
+        return graph, store, pool          # ← also return the pool
     except Exception as e:
         st.error(f"Database connection failed: {e}")
         st.stop()
