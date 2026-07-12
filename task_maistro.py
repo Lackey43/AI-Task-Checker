@@ -22,6 +22,14 @@ from langgraph.store.memory import InMemoryStore
 
 import configuration
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from os import getenv
+
+api_key = getenv("OPENROUTER_API_KEY")
+
 ## Utilities 
 
 # Inspect the tool calls for Trustcall
@@ -140,7 +148,7 @@ class UpdateMemory(TypedDict):
     update_type: Literal['user', 'todo', 'instructions']
 
 # Initialize the model
-model = BaseChatModel(model="openrouter/free",model_provider="openrouter", temperature=0)
+model = BaseChatModel(model="openrouter/free",model_provider="openrouter", api_key = api_key, temperature=0)
 
 ## Create the Trustcall extractors for updating the user profile and ToDo list
 profile_extractor = create_extractor(
