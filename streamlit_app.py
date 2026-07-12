@@ -178,22 +178,22 @@ def get_graph_and_store(postgres_uri: str):
         pool = ConnectionPool(
             conninfo=postgres_uri,
             max_size=20,
-            kwargs={"autocommit": True}
+            # Remove this line completely:
+            # kwargs={"autocommit": True}
         )
+        
         checkpointer = PostgresSaver(pool)
         store = PostgresStore(pool)
+        
         checkpointer.setup()
         store.setup()
         
         graph = task_maistro.create_graph(checkpointer=checkpointer, store=store)
         return graph, store
+        
     except Exception as e:
         st.error(f"Database connection failed: {e}")
         st.stop()
-
-if not postgres_uri:
-    st.info("👈 Enter your **PostgreSQL URI** in the sidebar to start chatting.\n\nFree options: Supabase, Neon, Railway.")
-    st.stop()
 
 graph, store = get_graph_and_store(postgres_uri)
 
