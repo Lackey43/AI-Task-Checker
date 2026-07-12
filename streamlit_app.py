@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============================================
-# PAGE CONFIG + CLEAN STYLING (Grok-like)
+# PAGE CONFIG + GROK-STYLE UI
 # ============================================
 st.set_page_config(
     page_title="task_mAIstro",
@@ -59,7 +59,7 @@ st.markdown('<p class="main-title">✅ task_mAIstro</p>', unsafe_allow_html=True
 st.markdown('<p class="subtitle">Persistent AI Task Assistant • Long-term memory powered by PostgreSQL</p>', unsafe_allow_html=True)
 
 # ============================================
-# LOAD POSTGRES URI SECURELY (NO USER INPUT)
+# SECURE DATABASE CONNECTION (No user input)
 # ============================================
 postgres_uri = os.getenv("POSTGRES_URI") or st.secrets.get("POSTGRES_URI", "")
 
@@ -68,7 +68,7 @@ if not postgres_uri:
     st.stop()
 
 # ============================================
-# SIDEBAR (Clean settings + Memories)
+# SIDEBAR
 # ============================================
 with st.sidebar:
     st.header("⚙️ Settings")
@@ -86,9 +86,9 @@ with st.sidebar:
     )
     st.session_state.task_maistro_role = task_maistro_role
     
-    st.caption("🔒 Database connected securely via environment variable")
+    st.caption("🔒 Using secure database from environment variable")
     
-    if st.button("🔄 Refresh Everything", use_container_width=True):
+    if st.button("🔄 Clear Chat & Refresh", use_container_width=True):
         st.cache_resource.clear()
         if "messages" in st.session_state:
             st.session_state.messages = []
@@ -96,33 +96,41 @@ with st.sidebar:
     
     st.divider()
     st.subheader("🧠 Long-term Memory")
-    memory_placeholder = st.empty()
+    
+    if st.button("🔄 Load / Refresh Memories", use_container_width=True):
+        with st.spinner("Loading from PostgreSQL..."):
+            show_memories()   # Only loads when user clicks
+    else:
+        st.caption("Click the button above to view your profile, todos, and instructions.")
 
 # ============================================
-# PERSISTENCE (No autocommit - fixed)
+# PERSISTENCE (Stable pool settings)
 # ============================================
-@st.cache_resource(show_spinner="Connecting to secure database...")
+@st.cache_resource(show_spinner="Connecting to PostgreSQL...")
 def get_graph_and_store(postgres_uri: str):
     try:
         pool = ConnectionPool(
             conninfo=postgres_uri,
-            max_size=20
-            # No autocommit=True — this was causing DuplicatePreparedStatement errors
+            max_size=15,
+            kwargs={
+                "prepare_threshold": 0,   # Disable prepared statements (fixes most pool errors)
+                "autocommit": True,
+            }
         )
         checkpointer = PostgresSaver(pool)
         store = PostgresStore(pool)
         checkpointer.setup()
         store.setup()
-        
+
         graph = task_maistro.create_graph(checkpointer=checkpointer, store=store)
         return graph, store
     except Exception as e:
-        st.error(f"Failed to connect to database: {e}")
+        st.error(f"Database connection failed: {e}")
         st.stop()
 
 graph, store = get_graph_and_store(postgres_uri)
 
-# Config
+# Config for this thread
 thread_id = f"{user_id}__{todo_category}"
 config = {
     "configurable": {
@@ -134,58 +142,63 @@ config = {
 }
 
 # ============================================
-# MEMORY DISPLAY
+# MEMORY DISPLAY FUNCTION
 # ============================================
 def show_memories():
-    with memory_placeholder.container():
-        # Profile
-        profile_ns = ("profile", todo_category, user_id)
-        prof = store.search(profile_ns)
-        with st.expander("👤 Profile", expanded=bool(prof)):
-            st.json(prof[0].value if prof else {"status": "No profile yet"})
-        
-        # To-Dos (this is what user wants working)
-        todo_ns = ("todo", todo_category, user_id)
-        todos = store.search(todo_ns)
-        with st.expander(f"📋 To-Do List ({len(todos)})", expanded=True):
-            if todos:
-                for t in todos:
-                    item = t.value
-                    emoji = {"not started": "⬜", "in progress": "🔄", "done": "✅", "archived": "📦"}.get(item.get("status"), "⬜")
-                    st.markdown(f"""
-                    <div class="todo-card">
-                        <strong>{emoji} {item.get('task', 'Untitled')}</strong><br>
-                        <small>⏱ {item.get('time_to_complete', '?')} min • {item.get('deadline') or 'No deadline'}</small>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    if item.get("solutions"):
-                        with st.popover("💡 Solutions"):
-                            for sol in item["solutions"]:
-                                st.write(f"• {sol}")
-            else:
-                st.caption("No tasks yet. Tell the AI to add some (e.g. 'Add buy groceries by Friday')")
-        
-        # Instructions
-        instr_ns = ("instructions", todo_category, user_id)
-        instr = store.get(instr_ns, "user_instructions")
-        with st.expander("⚙️ Custom Instructions", expanded=False):
-            st.text(instr.value.get("memory", "None set yet") if instr else "None set yet")
+    # Profile
+    profile_ns = ("profile", todo_category, user_id)
+    prof = store.search(profile_ns)
+    with st.expander("👤 Profile", expanded=bool(prof)):
+        if prof:
+            st.json(prof[0].value)
+        else:
+            st.caption("No profile information yet.")
 
-show_memories()
+    # To-Dos
+    todo_ns = ("todo", todo_category, user_id)
+    todos = store.search(todo_ns)
+    with st.expander(f"📋 To-Do List ({len(todos)})", expanded=True):
+        if todos:
+            for t in todos:
+                item = t.value
+                emoji = {"not started": "⬜", "in progress": "🔄", "done": "✅", "archived": "📦"}.get(item.get("status"), "⬜")
+                st.markdown(f"""
+                <div class="todo-card">
+                    <strong>{emoji} {item.get('task', 'Untitled task')}</strong><br>
+                    <small>⏱ {item.get('time_to_complete', '?')} min • {item.get('deadline') or 'No deadline'}</small>
+                </div>
+                """, unsafe_allow_html=True)
+                if item.get("solutions"):
+                    with st.popover("💡 Suggested solutions"):
+                        for sol in item["solutions"]:
+                            st.write(f"• {sol}")
+        else:
+            st.caption("No tasks yet. Ask the AI to add some!")
+
+    # Instructions
+    instr_ns = ("instructions", todo_category, user_id)
+    instr = store.get(instr_ns, "user_instructions")
+    with st.expander("⚙️ Custom Instructions", expanded=False):
+        if instr:
+            st.text(instr.value.get("memory", ""))
+        else:
+            st.caption("No custom instructions set yet.")
 
 # ============================================
-# CHAT + STREAMING
+# CHAT INTERFACE + TOKEN STREAMING
 # ============================================
-st.subheader(f"💬 Chat • {todo_category}")
+st.subheader(f"💬 Chat • Thread: {thread_id}")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# Render chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-if prompt := st.chat_input("Add tasks, update your profile, or ask me anything..."):
+# Chat input
+if prompt := st.chat_input("Tell me what to do... (e.g. 'Add buy groceries by Friday')"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -208,7 +221,6 @@ if prompt := st.chat_input("Add tasks, update your profile, or ask me anything..
 
             placeholder.markdown(full_response)
             st.session_state.messages.append({"role": "assistant", "content": full_response})
-            st.rerun()
 
         except Exception as e:
             st.error(f"Something went wrong: {e}")
@@ -216,4 +228,4 @@ if prompt := st.chat_input("Add tasks, update your profile, or ask me anything..
                 st.session_state.messages.pop()
 
 st.divider()
-st.caption("task_mAIstro • Secure persistent memory • Token streaming • Built with LangGraph + PostgreSQL")
+st.caption("task_mAIstro • Secure PostgreSQL memory • Token streaming enabled • Built with LangGraph")
