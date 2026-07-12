@@ -70,6 +70,51 @@ if not postgres_uri:
 # ============================================
 # SIDEBAR
 # ============================================
+# ============================================
+# MEMORY DISPLAY FUNCTION
+# ============================================
+def show_memories():
+    # Profile
+    profile_ns = ("profile", todo_category, user_id)
+    prof = store.search(profile_ns)
+    with st.expander("👤 Profile", expanded=bool(prof)):
+        if prof:
+            st.json(prof[0].value)
+        else:
+            st.caption("No profile information yet.")
+
+    # To-Dos
+    todo_ns = ("todo", todo_category, user_id)
+    todos = store.search(todo_ns)
+    with st.expander(f"📋 To-Do List ({len(todos)})", expanded=True):
+        if todos:
+            for t in todos:
+                item = t.value
+                emoji = {"not started": "⬜", "in progress": "🔄", "done": "✅", "archived": "📦"}.get(item.get("status"), "⬜")
+                st.markdown(f"""
+                <div class="todo-card">
+                    <strong>{emoji} {item.get('task', 'Untitled task')}</strong><br>
+                    <small>⏱ {item.get('time_to_complete', '?')} min • {item.get('deadline') or 'No deadline'}</small>
+                </div>
+                """, unsafe_allow_html=True)
+                if item.get("solutions"):
+                    with st.popover("💡 Suggested solutions"):
+                        for sol in item["solutions"]:
+                            st.write(f"• {sol}")
+        else:
+            st.caption("No tasks yet. Ask the AI to add some!")
+
+    # Instructions
+    instr_ns = ("instructions", todo_category, user_id)
+    instr = store.get(instr_ns, "user_instructions")
+    with st.expander("⚙️ Custom Instructions", expanded=False):
+        if instr:
+            st.text(instr.value.get("memory", ""))
+        else:
+            st.caption("No custom instructions set yet.")
+
+
+
 with st.sidebar:
     st.header("⚙️ Settings")
     
@@ -141,48 +186,7 @@ config = {
     }
 }
 
-# ============================================
-# MEMORY DISPLAY FUNCTION
-# ============================================
-def show_memories():
-    # Profile
-    profile_ns = ("profile", todo_category, user_id)
-    prof = store.search(profile_ns)
-    with st.expander("👤 Profile", expanded=bool(prof)):
-        if prof:
-            st.json(prof[0].value)
-        else:
-            st.caption("No profile information yet.")
 
-    # To-Dos
-    todo_ns = ("todo", todo_category, user_id)
-    todos = store.search(todo_ns)
-    with st.expander(f"📋 To-Do List ({len(todos)})", expanded=True):
-        if todos:
-            for t in todos:
-                item = t.value
-                emoji = {"not started": "⬜", "in progress": "🔄", "done": "✅", "archived": "📦"}.get(item.get("status"), "⬜")
-                st.markdown(f"""
-                <div class="todo-card">
-                    <strong>{emoji} {item.get('task', 'Untitled task')}</strong><br>
-                    <small>⏱ {item.get('time_to_complete', '?')} min • {item.get('deadline') or 'No deadline'}</small>
-                </div>
-                """, unsafe_allow_html=True)
-                if item.get("solutions"):
-                    with st.popover("💡 Suggested solutions"):
-                        for sol in item["solutions"]:
-                            st.write(f"• {sol}")
-        else:
-            st.caption("No tasks yet. Ask the AI to add some!")
-
-    # Instructions
-    instr_ns = ("instructions", todo_category, user_id)
-    instr = store.get(instr_ns, "user_instructions")
-    with st.expander("⚙️ Custom Instructions", expanded=False):
-        if instr:
-            st.text(instr.value.get("memory", ""))
-        else:
-            st.caption("No custom instructions set yet.")
 
 # ============================================
 # CHAT INTERFACE + TOKEN STREAMING
