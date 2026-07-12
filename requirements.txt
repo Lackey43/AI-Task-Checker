@@ -12,3 +12,4 @@ aiohttp>=3.13.4
 pydantic
 psycopg_pool
 langchain-openrouter
+langchain-google-genai
