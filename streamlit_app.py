@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import warnings
 from langchain_core.messages import HumanMessage
 
 import task_maistro
@@ -12,8 +13,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Suppress the harmless ConnectionPool shutdown warning
+warnings.filterwarnings(
+    "ignore",
+    category=RuntimeWarning,
+    message=".*cannot join current thread.*"
+)
+
 # ============================================
-# PAGE CONFIG + GROK-STYLE UI
+# PAGE CONFIG + CLEAN UI
 # ============================================
 st.set_page_config(
     page_title="task_mAIstro",
@@ -59,62 +67,17 @@ st.markdown('<p class="main-title">✅ task_mAIstro</p>', unsafe_allow_html=True
 st.markdown('<p class="subtitle">Persistent AI Task Assistant • Long-term memory powered by PostgreSQL</p>', unsafe_allow_html=True)
 
 # ============================================
-# SECURE DATABASE CONNECTION (No user input)
+# LOAD DATABASE SECURELY (NO INPUT BOX)
 # ============================================
 postgres_uri = os.getenv("POSTGRES_URI") or st.secrets.get("POSTGRES_URI", "")
 
 if not postgres_uri:
-    st.error("❌ PostgreSQL URI not found. Please set `POSTGRES_URI` in your environment or `.streamlit/secrets.toml`.")
+    st.error("❌ PostgreSQL URI not found. Please set it in your environment or `.streamlit/secrets.toml`.")
     st.stop()
 
 # ============================================
 # SIDEBAR
 # ============================================
-# ============================================
-# MEMORY DISPLAY FUNCTION
-# ============================================
-def show_memories():
-    # Profile
-    profile_ns = ("profile", todo_category, user_id)
-    prof = store.search(profile_ns)
-    with st.expander("👤 Profile", expanded=bool(prof)):
-        if prof:
-            st.json(prof[0].value)
-        else:
-            st.caption("No profile information yet.")
-
-    # To-Dos
-    todo_ns = ("todo", todo_category, user_id)
-    todos = store.search(todo_ns)
-    with st.expander(f"📋 To-Do List ({len(todos)})", expanded=True):
-        if todos:
-            for t in todos:
-                item = t.value
-                emoji = {"not started": "⬜", "in progress": "🔄", "done": "✅", "archived": "📦"}.get(item.get("status"), "⬜")
-                st.markdown(f"""
-                <div class="todo-card">
-                    <strong>{emoji} {item.get('task', 'Untitled task')}</strong><br>
-                    <small>⏱ {item.get('time_to_complete', '?')} min • {item.get('deadline') or 'No deadline'}</small>
-                </div>
-                """, unsafe_allow_html=True)
-                if item.get("solutions"):
-                    with st.popover("💡 Suggested solutions"):
-                        for sol in item["solutions"]:
-                            st.write(f"• {sol}")
-        else:
-            st.caption("No tasks yet. Ask the AI to add some!")
-
-    # Instructions
-    instr_ns = ("instructions", todo_category, user_id)
-    instr = store.get(instr_ns, "user_instructions")
-    with st.expander("⚙️ Custom Instructions", expanded=False):
-        if instr:
-            st.text(instr.value.get("memory", ""))
-        else:
-            st.caption("No custom instructions set yet.")
-
-
-
 with st.sidebar:
     st.header("⚙️ Settings")
     
@@ -131,9 +94,9 @@ with st.sidebar:
     )
     st.session_state.task_maistro_role = task_maistro_role
     
-    st.caption("🔒 Using secure database from environment variable")
+    st.caption("🔒 Database connected securely via environment variable")
     
-    if st.button("🔄 Clear Chat & Refresh", use_container_width=True):
+    if st.button("🔄 Clear Chat", use_container_width=True):
         st.cache_resource.clear()
         if "messages" in st.session_state:
             st.session_state.messages = []
@@ -143,13 +106,13 @@ with st.sidebar:
     st.subheader("🧠 Long-term Memory")
     
     if st.button("🔄 Load / Refresh Memories", use_container_width=True):
-        with st.spinner("Loading from PostgreSQL..."):
-            show_memories()   # Only loads when user clicks
+        with st.spinner("Loading from database..."):
+            show_memories()
     else:
-        st.caption("Click the button above to view your profile, todos, and instructions.")
+        st.caption("Click above to load your profile and todos")
 
 # ============================================
-# PERSISTENCE (Stable pool settings)
+# DATABASE CONNECTION (Best settings)
 # ============================================
 @st.cache_resource(show_spinner="Connecting to PostgreSQL...")
 def get_graph_and_store(postgres_uri: str):
@@ -171,14 +134,14 @@ def get_graph_and_store(postgres_uri: str):
         store.setup()
 
         graph = task_maistro.create_graph(checkpointer=checkpointer, store=store)
-        return graph, store, pool          # ← also return the pool
+        return graph, store
     except Exception as e:
         st.error(f"Database connection failed: {e}")
         st.stop()
 
 graph, store = get_graph_and_store(postgres_uri)
 
-# Config for this thread
+# Config
 thread_id = f"{user_id}__{todo_category}"
 config = {
     "configurable": {
@@ -189,23 +152,58 @@ config = {
     }
 }
 
+# ============================================
+# MEMORY DISPLAY
+# ============================================
+def show_memories():
+    # Profile
+    profile_ns = ("profile", todo_category, user_id)
+    prof = store.search(profile_ns)
+    with st.expander("👤 Profile", expanded=bool(prof)):
+        if prof:
+            st.json(prof[0].value)
+        else:
+            st.caption("No profile yet.")
 
+    # To-Dos
+    todo_ns = ("todo", todo_category, user_id)
+    todos = store.search(todo_ns)
+    with st.expander(f"📋 To-Do List ({len(todos)})", expanded=True):
+        if todos:
+            for t in todos:
+                item = t.value
+                emoji = {"not started": "⬜", "in progress": "🔄", "done": "✅", "archived": "📦"}.get(item.get("status"), "⬜")
+                st.markdown(f"""
+                <div class="todo-card">
+                    <strong>{emoji} {item.get('task', 'Untitled')}</strong><br>
+                    <small>⏱ {item.get('time_to_complete', '?')} min</small>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.caption("No tasks yet. Ask the AI to add some!")
+
+    # Instructions
+    instr_ns = ("instructions", todo_category, user_id)
+    instr = store.get(instr_ns, "user_instructions")
+    with st.expander("⚙️ Custom Instructions", expanded=False):
+        if instr:
+            st.text(instr.value.get("memory", ""))
+        else:
+            st.caption("No custom instructions set.")
 
 # ============================================
-# CHAT INTERFACE + TOKEN STREAMING
+# CHAT + STREAMING
 # ============================================
-st.subheader(f"💬 Chat • Thread: {thread_id}")
+st.subheader(f"💬 Chat • {todo_category}")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Render chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Chat input
-if prompt := st.chat_input("Tell me what to do... (e.g. 'Add buy groceries by Friday')"):
+if prompt := st.chat_input("What would you like me to do?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -230,9 +228,9 @@ if prompt := st.chat_input("Tell me what to do... (e.g. 'Add buy groceries by Fr
             st.session_state.messages.append({"role": "assistant", "content": full_response})
 
         except Exception as e:
-            st.error(f"Something went wrong: {e}")
+            st.error(f"Error: {e}")
             if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
                 st.session_state.messages.pop()
 
 st.divider()
-st.caption("task_mAIstro • Secure PostgreSQL memory • Token streaming enabled • Built with LangGraph")
+st.caption("task_mAIstro • Persistent memory with PostgreSQL • Token streaming")
