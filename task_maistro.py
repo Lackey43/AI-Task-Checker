@@ -434,7 +434,9 @@ def create_graph(checkpointer=None, store=None):
                 pool = ConnectionPool(
                     conninfo=postgres_uri,
                     max_size=20,
-                    kwargs={"prepare_threshold": 0,}
+                    kwargs={"prepare_threshold": 0,
+                            "autocommit": True,
+                    }
                 )
                 
                 checkpointer = PostgresSaver(pool)
