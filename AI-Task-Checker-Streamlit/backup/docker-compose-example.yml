@@ -41,5 +41,3 @@ services:
             OPENAI_API_KEY: "your_openai_api_key"
             LANGSMITH_API_KEY: "your_langsmith_api_key"
             POSTGRES_URI: postgres://postgres:postgres@langgraph-postgres:5432/postgres?sslmode=disable
-# Note: This docker-compose is for LangGraph Platform/self-hosted deployment.
-# For Streamlit + Postgres, use a managed Postgres (Supabase/Neon) and deploy streamlit_app.py directly.

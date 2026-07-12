@@ -1,8 +1,6 @@
 import uuid
 from datetime import datetime
 
-import os
-
 from pydantic import BaseModel, Field
 
 from trustcall import create_extractor
@@ -20,8 +18,12 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 
-import configuration
+from os import getenv
 
+import configuration
+from dotenv import load_dotenv
+
+load_dotenv()
 ## Utilities 
 
 # Inspect the tool calls for Trustcall
@@ -140,7 +142,8 @@ class UpdateMemory(TypedDict):
     update_type: Literal['user', 'todo', 'instructions']
 
 # Initialize the model
-model = BaseChatModel(model="openrouter/free",model_provider="openrouter", temperature=0)
+api_key = getenv("OPENROUTER_API_KEY")
+model = BaseChatModel(model="openrouter/free", model_provider="openrouter", temperature=0, api_key=api_key)
 
 ## Create the Trustcall extractors for updating the user profile and ToDo list
 profile_extractor = create_extractor(
@@ -408,37 +411,5 @@ builder.add_edge("update_todos", "task_mAIstro")
 builder.add_edge("update_profile", "task_mAIstro")
 builder.add_edge("update_instructions", "task_mAIstro")
 
-## Persistence setup for deployability (Postgres or in-memory fallback)
-def create_graph(checkpointer=None, store=None):
-    """Create and compile the LangGraph with optional checkpointer and store for persistence.
-    
-    If not provided, auto-detects POSTGRES_URI env var for PostgreSQL persistence
-    (suitable for production/Streamlit/LangGraph Platform deploys), 
-    otherwise falls back to in-memory for local development.
-    """
-    if checkpointer is None or store is None:
-        postgres_uri = os.getenv("POSTGRES_URI") or os.getenv("DATABASE_URL")
-        if postgres_uri:
-            try:
-                from langgraph.checkpoint.postgres import PostgresSaver
-                from langgraph.store.postgres import PostgresStore
-                checkpointer = PostgresSaver.from_conn_string(postgres_uri)
-                store = PostgresStore.from_conn_string(postgres_uri)
-                # Ensure tables exist (safe to call multiple times)
-                checkpointer.setup()
-                store.setup()
-            except Exception as e:
-                print(f"Warning: Could not initialize Postgres persistence ({e}). Falling back to memory.")
-                from langgraph.checkpoint.memory import MemorySaver
-                from langgraph.store.memory import InMemoryStore
-                checkpointer = MemorySaver()
-                store = InMemoryStore()
-        else:
-            from langgraph.checkpoint.memory import MemorySaver
-            from langgraph.store.memory import InMemoryStore
-            checkpointer = MemorySaver()
-            store = InMemoryStore()
-    return builder.compile(checkpointer=checkpointer, store=store)
-
-# For compatibility with langgraph.json ("./task_maistro.py:graph") and direct runs
-graph = create_graph()
+# Compile the graph
+graph = builder.compile()
